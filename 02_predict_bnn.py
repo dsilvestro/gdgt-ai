@@ -1,7 +1,10 @@
-import numpy as np
-import pandas as pd
+# if necessary, change working directory
+wd ='your_path/gdgt-ai-main/'
+import os
+os.chdir(wd)
+
+# load GDGT-AI library
 import gdgt
-print(gdgt.__version__)
 
 
 #---- predict unlabeled data ----#

@@ -1,3 +1,9 @@
+# if necessary, change working directory
+wd ='your_path/gdgt-ai-main/'
+import os
+os.chdir(wd)
+
+# load GDGT-AI library
 import gdgt
 
 training_data_file = 'data/MAT_training_data.csv'
