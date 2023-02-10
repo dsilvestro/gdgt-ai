@@ -14,7 +14,8 @@ class GDGTdata():
                  normalize_features=True,
                  site_columnID='Site', # set to None if no site column is provided
                  clim_variable='MAT',
-                 wd=''):
+                 wd='',
+                 sep=','):
         self._input_file = infile
         self._normalize_features = normalize_features
         self._clim_variable = clim_variable
@@ -23,7 +24,7 @@ class GDGTdata():
         else:
             self._wd = wd
         
-        tbl = pd.read_csv(infile, sep=',')
+        tbl = pd.read_csv(infile, sep=sep)
         tbl = tbl.replace(' ', '_', regex=True)
         tbl.columns = tbl.columns.str.replace(' ', '_')
 
