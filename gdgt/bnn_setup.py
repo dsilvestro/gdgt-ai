@@ -112,7 +112,7 @@ def run_cv_bnn(f,
 
 
 
-def get_posterior_predictions(pkl_file, unlabeled_data, mat_model,save_predictions=True):
+def get_posterior_predictions(pkl_file, unlabeled_data, mat_model,save_predictions=True, outname=""):
     bnn_obj, mcmc_obj, logger_obj = bn.load_obj(pkl_file)
     post_samples = logger_obj._post_weight_samples
     # reset data
@@ -145,10 +145,16 @@ def get_posterior_predictions(pkl_file, unlabeled_data, mat_model,save_predictio
     post_est_test = np.array(post_est_test)
     prm_mean_test = None
 
-    if save_predictions:
-        p = pd.DataFrame(prm_mean[:,0], columns=['predicted_MAT'])
-        res_tbl = pd.concat([unlabeled_data._site, p], axis=1)
+    p = pd.DataFrame(prm_mean[:,0], columns=['prediction'])
+    e = pd.DataFrame(np.ones(len(prm_mean[:,0])) * np.mean(post_error), columns=['std.err'])
+    res_tbl = pd.concat([unlabeled_data._site, p, e], axis=1)
+    if outname == "":
         outfile = os.path.basename(unlabeled_data._input_file) + "_BNNpredictions.txt"
+    else:
+        outfile = os.path.basename(unlabeled_data._input_file) + "_%s.txt" % outname
+
+
+    if save_predictions:
         res_tbl.to_csv(os.path.join(unlabeled_data._wd, outfile), sep="\t", index=False)
         print("\nPredictions saved in:", os.path.join(unlabeled_data._wd, outfile))
 
@@ -168,5 +174,6 @@ def get_posterior_predictions(pkl_file, unlabeled_data, mat_model,save_predictio
             'prm_mean_test': prm_mean_test,
             'post_est_test': post_est_test,
             'error_prm': post_error,
-            'post_samples': pred_mean # samples based on posterior mu/sd
+            'post_samples': pred_mean, # samples based on posterior mu/sd
+            'res_tbl': res_tbl
         }

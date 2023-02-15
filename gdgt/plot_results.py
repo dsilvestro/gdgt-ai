@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends import backend_pdf  # saves pdfs
 import pickle
 from .prep_data import *
-import np_bnn as bn
+# import np_bnn as bn
+from . import np_bnn as bn
 
 def plot_nn(res,
             clim_variable=None,
