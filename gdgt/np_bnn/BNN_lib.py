@@ -15,6 +15,40 @@ import os
 # if alpha < 1 and non trainable: leaky ReLU (https://ai.stanford.edu/~amaas/papers/relu_hybrid_icml2013_final.pdf)
 # if trainable: parameteric ReLU (https://arxiv.org/pdf/1502.01852.pdf)
 
+def create_mask(w_layers, indx_input_list, nodes_per_feature_list):
+    m_layers = []
+    for w in w_layers:
+        # w = np.random.random((9,3))
+        # indx_features = [0, 1, 2]
+        # nodes_per_feature = [4, 3, 2]
+        # indx_features = [0, 0, 2]
+        # nodes_per_feature = [5, 4]
+        indx_features = indx_input_list[len(m_layers)]
+        nodes_per_feature = nodes_per_feature_list[len(m_layers)]
+        if len(indx_features) == 0:
+            # fully connect
+            m = np.ones(w.shape)
+        else:
+            m = np.zeros(w.shape)
+            max_indx_rows = 0
+            j = 0
+            for i in range(len(indx_features)):
+                if i > 0:
+                    if indx_features[i] != indx_features[i - 1]:
+                        j += 1
+                        indx_rows = np.arange(nodes_per_feature[j]) + max_indx_rows
+                else:
+                    indx_rows = np.arange(nodes_per_feature[j])
+                indx_cols = np.repeat(i, nodes_per_feature[j])
+                m[indx_rows, indx_cols] = 1
+                # indx_cols2 = np.repeat(indx_features[i], nodes_per_feature[j])
+                # m[indx_rows, indx_cols2] = 1
+                max_indx_rows = np.max(indx_rows) + 1
+
+        m_layers.append(m)
+    return m_layers
+
+
 def relu_f(z, _):
     z[z < 0] = 0
     return z
@@ -28,6 +62,9 @@ def swish_f(z, _):
     z = z * (1 + np.exp(-z))**(-1)
     return z
 
+def tanh_f(z, _):
+    return np.tanh(z)
+
 class ActFun():
     def __init__(self, fun='ReLU', prm=np.zeros(1), trainable=False):
         self._prm = prm
@@ -40,6 +77,8 @@ class ActFun():
             self.activate = leaky_relu_f
         if fun == "swish":
             self.activate = swish_f
+        if fun == "tanh":
+            self.activate = tanh_f
 
     def eval(self, z, layer_n):
         if self._function == "genReLU":
@@ -58,30 +97,48 @@ class ActFun():
 
 # likelihood function (Categorical)
 # TODO: refactor this as a class
-def calc_likelihood(prediction, labels, sample_id, class_weight=[], lik_temp=1, _=0):
+def calc_likelihood(prediction, labels, sample_id,
+                    class_weight=[], instance_weight=None,
+                    lik_temp=1, sig2=0):
     if len(class_weight):
-        return lik_temp * np.sum(np.log(prediction[sample_id, labels])*class_weight[labels])
+        if instance_weight is not None:
+            lik_tmp = np.sum(np.log(prediction[sample_id, labels]) * class_weight[labels], axis=1)
+            return lik_temp * (lik_tmp * instance_weight)
+        else:
+            return lik_temp * np.sum(np.log(prediction[sample_id, labels]) * class_weight[labels])
     else:
         # if lik_temp != 1:
         #     tempered_prediction = lik_temp ** prediction
         #     normalized_tempered_prediction = np.einsum('xy,x->xy', tempered_prediction, 1 / np.sum(tempered_prediction,axis=1))
         #     return np.sum(np.log(normalized_tempered_prediction[sample_id, labels]))
         # else:
-        return lik_temp * np.sum(np.log(prediction[sample_id, labels]))
+        if instance_weight is not None:
+            # print(np.log(prediction[sample_id, labels]).shape)
+            # print(np.log(prediction[sample_id, labels]))
+            # print(instance_weight)
+            return lik_temp * (np.sum(np.log(prediction[sample_id, labels]) * instance_weight))
+        else:
+            return lik_temp * np.sum(np.log(prediction[sample_id, labels]))
 
 def calc_likelihood_regression(prediction, # 2D array: inst x (mus + sigs)
                                true_values, # 2D array: val[inst x n_param
-                               _, __,
+                               _, class_weight=None,
+                               instance_weight=None,
                                lik_temp=1,
                                sig2=1):
+    if instance_weight is not None:
+        sys.exit("instance_weight not implemented for regression")
     return lik_temp * np.sum(scipy.stats.norm.logpdf(true_values, prediction, sig2))
 
 
 def calc_likelihood_regression_error(prediction, # 2D array: inst x (mus + sigs)
                                true_values, # 2D array: val[inst x n_param
-                               _, __,
+                               _, class_weight=None,
+                               instance_weight=None,
                                lik_temp=1,
-                               ___=0):
+                               sig2=0):
+    if instance_weight is not None:
+        sys.exit("instance_weight not implemented for regression")
     ind = true_values.shape[1] #int(prediction.shape[1] / 2)
     return lik_temp * np.sum(scipy.stats.norm.logpdf(true_values, prediction[:,:ind], prediction[:,ind:]))
 
@@ -438,15 +495,21 @@ def feature_importance(input_features,
     # if no names are provided, name them by index
     if len(feature_names) == 0:
         feature_names = feature_indices.astype(str)
-    if len(feature_blocks.keys()) > 0:
-        selected_features = []
-        feature_block_names = []
-        for block_name, block_indices in feature_blocks.items():
-            selected_features.append(block_indices)
-            feature_block_names.append(block_name)
+    if type(feature_blocks) is dict:
+        if len(feature_blocks.keys()) > 0:
+            selected_features = []
+            feature_block_names = []
+            for block_name, block_indices in feature_blocks.items():
+                selected_features.append(block_indices)
+                feature_block_names.append(block_name)
+        else:
+            selected_features = [[i] for i in feature_indices]
+            feature_block_names = [i for i in feature_names]
     else:
-        selected_features = [[i] for i in feature_indices]
-        feature_block_names = [i for i in feature_names]
+        # if a list of lists is provided
+        selected_features = feature_blocks
+        feature_block_names = ['block_' + str(i) for i in range(len(feature_blocks))]
+
     # get accuracy with all features
     if weights_pkl:
         bnn_obj,mcmc_obj,logger_obj = load_obj(weights_pkl)

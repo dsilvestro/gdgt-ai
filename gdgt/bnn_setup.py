@@ -29,7 +29,8 @@ def run_one_fold_bnn(f,
     bnn_model = bn.npBNN(dat,
                          n_nodes=n_layers,
                          estimation_mode="regression",
-                         use_bias_node=use_bias_node
+                         use_bias_node=use_bias_node,
+                         actFun='tanh'
                          )
     mcmc = bn.MCMC(bnn_model,
                    n_iteration=n_iteration,

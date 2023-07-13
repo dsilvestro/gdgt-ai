@@ -12,7 +12,10 @@ class npBNN():
                  use_bias_node=1, init_std=0.1, p_scale=1, prior_ind1=0.5,
                  prior_f=1, hyper_p=0, freq_indicator=0, w_bound=np.infty,
                  pickle_file="", seed=1234, use_class_weights=0, actFun=ActFun(),init_weights=None,
-                 estimation_mode="classification"):
+                 estimation_mode="classification",
+                 instance_weights=None, # array specifying instance weights
+                 empirical_error=False
+                 ):
         # prior_f: 0) uniform 1) normal 2) cauchy
         # to change the boundaries of a uniform prior use -p_scale
         # hyper_p: 0) no hyperpriors, 1) 1 per layer, 2) 1 per input node, 3) 1 per node
@@ -48,6 +51,7 @@ class npBNN():
             self._size_output = self._labels.shape[1] * 2 # mus, sigs
             self._n_output_prm = self._labels.shape[1]
             self._output_act_fun = RegressTransformError
+        self._empirical_error = empirical_error
         self._init_std = init_std
         try: # see if we have an actual list or single element
             n_nodes = list(n_nodes)
@@ -67,6 +71,7 @@ class npBNN():
         self._p_scale = p_scale
         self._prior_ind1 = prior_ind1
         self._estimation_mode = estimation_mode
+        self._mask = None
 
         if use_class_weights:
             class_counts = np.unique(self._labels, return_counts=True)[1]
@@ -75,6 +80,9 @@ class npBNN():
             print("Using class weights:", self._class_w)
         else:
             self._class_w = []
+
+        self._instance_weights = instance_weights
+
 
         # init weights
         if init_weights is None:
@@ -194,12 +202,23 @@ class npBNN():
         self._test_data = data_dict['test_data']
         self._test_labels = data_dict['test_labels']
 
+    def apply_mask(self, m=None):
+        if m is not None:
+            self._mask = m
+        self._w_layers = [self._w_layers[i] * self._mask[i] for i in range(self._n_layers)]
+        n_params = np.sum(np.array([np.size(i[i !=0]) for i in self._w_layers]))
+        if self._act_fun._trainable:
+            n_params += self._n_layers
+        print("N. of parameters:", n_params)
+        for w in self._w_layers: print(w.shape)
+
+
 class MCMC():
     def __init__(self, bnn_obj, update_f=None, update_ws=None,
                  temperature=1, n_iteration=100000, sampling_f=100, print_f=1000, n_post_samples=1000,
                  update_function=UpdateNormal, sample_from_prior=0, run_ID="", init_additional_prob=0,
                  likelihood_tempering=1, mcmc_id=0, randomize_seed=False, adapt_f=0, estimate_error=True,
-                 adapt_fM=1):
+                 adapt_fM=1, adapt_freq=1000, adapt_stop=None):
         if update_ws is None:
             update_ws = [0.075] * bnn_obj._n_layers
         if update_f is None:
@@ -231,9 +250,10 @@ class MCMC():
             self._logLik = self._likelihood_f(self._y,
                                               bnn_obj._labels,
                                               bnn_obj._sample_id,
-                                              bnn_obj._class_w,
-                                              likelihood_tempering,
-                                              bnn_obj._error_prm)
+                                              class_weight=bnn_obj._class_w,
+                                              instance_weight=bnn_obj._instance_weights,
+                                              lik_temp=likelihood_tempering,
+                                              sig2=bnn_obj._error_prm)
         self._logPrior = bnn_obj.calc_prior() + init_additional_prob
         self._logPost = self._logLik + self._logPrior
         if bnn_obj._estimation_mode == "classification":
@@ -267,7 +287,11 @@ class MCMC():
         self._freq_layer_update = np.ones(bnn_obj._n_layers)
         self._adapt_f = adapt_f
         self._adapt_fM = adapt_fM
-        self._adapt_stop = int(self._n_iterations * 0.05)
+        if adapt_stop is None:
+            self._adapt_stop = int(self._n_iterations * 0.05)
+        else:
+            self._adapt_stop = adapt_stop
+        self._adapt_freq = adapt_freq
         self._max_n = np.array([bnn_obj._w_layers[i].size for i in range(bnn_obj._n_layers)]).astype(int)
         if estimate_error:
             # std fixed to 1 for first few iterations
@@ -285,7 +309,7 @@ class MCMC():
         indicators_prime = bnn_obj._indicators + 0
         error_prm_tmp = bnn_obj._error_prm
 
-        if self._current_iteration % 1000 == 0 and self._current_iteration < self._adapt_stop:
+        if self._current_iteration % self._adapt_freq  == 0 and self._current_iteration < self._adapt_stop:
             if self._acceptance_rate < self._adapt_f:
                 self._freq_layer_update = self._freq_layer_update * 0.8
                 #print(self._freq_layer_update)
@@ -315,10 +339,13 @@ class MCMC():
             bnn_obj._act_fun.reset_prm(prm_tmp)
 
         if bnn_obj._estimation_mode == "regression" and self._current_iteration > self._estimate_error:
-            error_prm_tmp, _, h = multiplier_proposal_vector(bnn_obj._error_prm, d=1.1, f=0.5, rs=self._rs)
-            r = 1
-            additional_prob += np.log(r) * -np.sum(error_prm_tmp)*r # aka exponential Exp(r)
-            hastings += h
+            if bnn_obj._empirical_error:
+                pass
+            else:
+                error_prm_tmp, _, h = multiplier_proposal_vector(bnn_obj._error_prm, d=1.1, f=0.5, rs=self._rs)
+                r = 1
+                hastings += h
+                additional_prob += np.log(r) * -np.sum(error_prm_tmp)*r # aka exponential Exp(r)
 
         rr = self._rs.random(bnn_obj._n_layers)
         rr[np.argmin(rr)] = 0 # make sure one layer is always updated
@@ -335,6 +362,8 @@ class MCMC():
             else:
                 w_layers_prime.append(bnn_obj._w_layers[i] + 0)
                 indicators_prime = UpdateBinomial(bnn_obj._indicators, self._update_f[3], bnn_obj._indicators.shape)
+            if bnn_obj._mask is not None:
+                w_layers_prime[i] *= bnn_obj._mask[i]
             if i == 0:
                 w_layers_prime_temp = w_layers_prime[i] * indicators_prime
             else:
@@ -345,6 +374,11 @@ class MCMC():
                 tmp = RunHiddenLayer(tmp, w_layers_prime_temp, False, i)
         y_prime = bnn_obj._output_act_fun(tmp)
 
+        if bnn_obj._empirical_error:
+            error_prm_tmp = np.std(y_prime - bnn_obj._labels, axis=0)
+        # elif self._current_iteration < self._estimate_error:
+        #     error_prm_tmp = np.std(y_prime - bnn_obj._labels, axis=0)
+
         logPrior_prime = bnn_obj.calc_prior(w=w_layers_prime, ind=indicators_prime) + additional_prob
         if self._sample_from_prior:
             logLik_prime = 0
@@ -352,9 +386,10 @@ class MCMC():
             logLik_prime = self._likelihood_f(y_prime,
                                               bnn_obj._labels,
                                               bnn_obj._sample_id,
-                                              bnn_obj._class_w,
-                                              self._lik_temp,
-                                              error_prm_tmp)
+                                              class_weight=bnn_obj._class_w,
+                                              instance_weight=bnn_obj._instance_weights,
+                                              lik_temp=self._lik_temp,
+                                              sig2=error_prm_tmp)
         logPost_prime = logLik_prime + logPrior_prime
         rrr = np.log(self._rs.random())
         if (logPost_prime - self._logPost) * self._temperature + hastings >= rrr:
@@ -463,6 +498,8 @@ class postLogger():
             row = row + add_prms
         if bnn_obj._act_fun._trainable:
             row = row + list(bnn_obj._act_fun._acc_prm)
+        if self._estimation_mode == "regression":
+            row = row + list(bnn_obj._error_prm)
         # row.append(mcmc_obj._accepted_states / mcmc_obj._current_iteration)
         row.append(mcmc_obj._acceptance_rate)
         row.append(mcmc_obj._mcmc_id)

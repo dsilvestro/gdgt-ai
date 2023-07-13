@@ -30,7 +30,9 @@ def rescale_features(brGDGTdata, normalize=False):
     if not normalize:
         rescale_factor = np.ones(brGDGTdata_FA.shape[1])
     else:
-        rescale_factor = 1 / np.max(brGDGTdata_FA, 0) 
+        d = np.max(brGDGTdata_FA, 0)
+        d[d == 0] = 1
+        rescale_factor = 1 / d
     return brGDGTdata_FAdf, rescale_factor
         
 
