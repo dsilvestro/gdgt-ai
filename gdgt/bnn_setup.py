@@ -30,7 +30,7 @@ def run_one_fold_bnn(f,
                          n_nodes=n_layers,
                          estimation_mode="regression",
                          use_bias_node=use_bias_node,
-                         actFun='tanh'
+                         actFun=bn.ActFun(fun="tanh")
                          )
     mcmc = bn.MCMC(bnn_model,
                    n_iteration=n_iteration,
