@@ -9,7 +9,7 @@ from numpy.random import MT19937
 from numpy.random import RandomState, SeedSequence
 # load GDGT-AI library
 
-gdgt_ai_path = "specify path to gdgt-ai"
+gdgt_ai_path = "specify path to the gdgt-ai folder"
 sys.path.insert(0, gdgt_ai_path)
 import gdgt
 

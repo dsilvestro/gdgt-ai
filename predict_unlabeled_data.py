@@ -1,73 +1,26 @@
-import os, sys
+import os, sys, glob
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-gdgt_ai_path = "specify path to gdgt-ai"
+gdgt_ai_path = "specify path to the gdgt-ai folder"
 sys.path.insert(0, gdgt_ai_path)
 import gdgt
 
 model_wd = "your path to gdgt-ai/trained_models"
 wd = "your path to gdgt-ai/unlabeled_data"
+results_wd = "path to a directory where the output files will be saved"
+# training file to train regular NN
+training_data_file = "your path to gdgt-ai/training_data/terr_features.txt"
 
 
-
-def main(data_indx,  maf_nn=None, mat_nn=None):
-
-    test_data_files = [
-        os.path.join(wd, 'Raberg2022_all_data_unlabeled.txt'), # 0
-        os.path.join(wd, "Salt_Lake_So_unlabeled.txt"), # 1
-        os.path.join(wd, "Dearing_2021_Site625_unlabeled.txt"), # 2
-        os.path.join(wd, "Amazon_GDGTs_unlabeled.txt"), # 3
-        os.path.join(wd, "Garelick2022_unlabeled.txt"), # 4
-        os.path.join(wd, "Hank_core2018_unlabeled.txt"), # 5
-        os.path.join(wd, "Feakins_2019_unlabeled.txt"), # 6
-
-        os.path.join(wd, "Weinan_loess_Tang_2017_unlabeled.txt"), # 7
-        os.path.join(wd, "Lingtai_Loess_Fuchs_2022_unlabeled.txt"), # 8
-        os.path.join(wd, "Xifeng_loess_section_Lu_2019_unlabeled.txt"), # 9
-        os.path.join(wd, "Lantian_loess_Lu_2016_unlabeled.txt"), # 10
-
-        os.path.join(wd, "Col17c_Colonia.txt"),  # 11
-        os.path.join(wd, "CO14_unlabeled.txt"),  # 12
-
-        os.path.join(wd, "soil_peat_features.txt_rnd.txt"), # 13 training data
-        os.path.join(wd, "Zhao_2023_data.txt")  # 14 Zhao 2023
-
-    ]
-
-    brGDGDT_columnIDs = [
-        'GDGT',
-        'I',
-        'I',
-        'I',
-        'I',
-        'I',
-        'b-',
-
-        'I',
-        'I',
-        'I',
-        'I',
-
-        'I',
-        'I',
-
-        'I',
-        'I'
-
-    ]
-
-    test_data_file = test_data_files[data_indx]
-    brGDGDT_columnID = brGDGDT_columnIDs[data_indx]
+def main(test_data_file,  maf_nn=None, mat_nn=None):
+    
+    brGDGDT_columnID = 'I'
     outname = os.path.basename(test_data_file).split(".txt")[0]
     print("\n\nRunning dataset:", test_data_file)
     nn_label_rescaler = 10
-
-    # test_data_file = os.path.join(wd, "Dearing_2021_Site925_unlabeled.txt")
-    # brGDGDT_columnID='I'
-    # outname = "Dearing_2021_Site925_unlabeled"
 
     #---- RELOAD ORIGINAL MODEL ----#
     #---- train/test BNN with cross validation ----#
@@ -89,11 +42,9 @@ def main(data_indx,  maf_nn=None, mat_nn=None):
 
     ## start regular NN
     if retrain_nn:
-        import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
         loss = 'mse' # 'log_cosh' #'mae'
         variable = "MAF"
-        training_data_file = '/Users/dsilvestro/Software/gdgt-ai/R1/temperature_model_%s/terr_features.txt' % variable
-
         training_data = gdgt.GDGTdata(training_data_file,
                                       brGDGDT_columnID='fI', # keyword identifying brGDGT columns in the table
                                       CLIM_columnID=variable, # set to None is unlabeled data (for prediction)
@@ -130,20 +81,15 @@ def main(data_indx,  maf_nn=None, mat_nn=None):
 
         fl = maf_model.predict(f).flatten() * nn_label_rescaler
 
-        plt.scatter(l, fl, alpha=0.3)
-        plt.plot(l, l, color="orange")
-        title = "sig: %s" % np.round(np.mean(np.abs(fl-l)), 3)
-        plt.gca().set_title(title, fontweight="bold", fontsize=10)
-        plt.show()
-        # plot residuals
-        plt.scatter(l, fl-l)
-
-        #
-        #
+        # plt.scatter(l, fl, alpha=0.3)
+        # plt.plot(l, l, color="orange")
+        # title = "sig: %s" % np.round(np.mean(np.abs(fl-l)), 3)
+        # plt.gca().set_title(title, fontweight="bold", fontsize=10)
+        # plt.show()
+        # # plot residuals
+        # plt.scatter(l, fl-l)
 
         variable = "MAT"
-        training_data_file = '/Users/dsilvestro/Software/gdgt-ai/R1/temperature_model_%s/terr_features.txt' % variable
-
         training_data = gdgt.GDGTdata(training_data_file,
                                       brGDGDT_columnID='fI', # keyword identifying brGDGT columns in the table
                                       CLIM_columnID=variable, # set to None is unlabeled data (for prediction)
@@ -250,14 +196,19 @@ def main(data_indx,  maf_nn=None, mat_nn=None):
     res_tbl = pd.concat([res_tbl, p], axis=1)
     
     ### Save results
-    res_tbl.to_csv(os.path.join(wd, 'Predictions_MAT_MAF_empErr_%s.txt' % outname), sep='\t')
-    print("Results saved to:", wd, 'Predictions_MAT_MAF_empErr_%s.txt' % outname)
+    res_tbl.to_csv(os.path.join(results_wd, 'Predictions_MAT_MAF_empErr_%s.txt' % outname), sep='\t')
+    print("Results saved to:", results_wd, 'Predictions_MAT_MAF_empErr_%s.txt' % outname)
     return maf_model, mat_model
 
 
 if __name__ == '__main__':
-    maf_model, mat_model = None, None
-    for i in range(15):
-        print(i)
-        maf_model, mat_model = main(i, maf_nn=maf_model, mat_nn=mat_model)
+    maf_model, mat_model = None, None    
+    test_data_files = np.sort(glob.glob(os.path.join(data_wd, "*")))
+    try:
+        os.mkdir(results_wd)
+    except:
+        pass    
+    for test_data_file in test_data_files:
+        print(test_data_file)
+        maf_model, mat_model = main(test_data_file, maf_nn=maf_model, mat_nn=mat_model)
 
